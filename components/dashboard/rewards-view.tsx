@@ -1,26 +1,49 @@
 "use client"
 
-import { useState } from "react"
-import type { CurrentUser, Role } from "@/lib/types"
-import { rewards } from "@/lib/mock-data"
+import { useProfile } from "@/hooks/use-profile"
+import { useRewards } from "@/hooks/use-rewards"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
-import { Gift, Coffee, ShoppingBag, Sparkles, Lock, Check, Star } from "lucide-react"
+import { Gift, Coffee, ShoppingBag, Sparkles, Lock, Check, Star, Loader2 } from "lucide-react"
+import { useState } from "react"
+import type { Role } from "@/lib/types"
 
 const roleRank: Record<Role, number> = { usuario: 0, lider: 1, admin: 2 }
-
 const catIcon = { cafeteria: Coffee, merch: ShoppingBag, experiencia: Sparkles }
 const catLabel = { cafeteria: "Cafetería", merch: "Merch", experiencia: "Experiencia" }
 
-export function RewardsView({ user }: { user: CurrentUser }) {
-  const [redeemed, setRedeemed] = useState<Set<string>>(new Set())
+export function RewardsView() {
+  const { profile } = useProfile()
+  const { rewards, redeemedIds, loading, redeem } = useRewards()
+  const [redeemingId, setRedeemingId] = useState<string | null>(null)
 
-  function redeem(id: string, title: string, cost: number) {
-    if (redeemed.has(id)) return
-    setRedeemed((prev) => new Set(prev).add(id))
-    toast.success("¡Recompensa canjeada!", { description: `${title} · -${cost} pts` })
+  async function handleRedeem(id: string, title: string, cost: number) {
+    setRedeemingId(id)
+    try {
+      const res = await redeem(id)
+      if (res.ok) {
+        toast.success("¡Recompensa canjeada!", { description: `${title} · -${cost} pts` })
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error("No se pudo canjear", { description: data.error ?? "Intenta de nuevo" })
+      }
+    } finally {
+      setRedeemingId(null)
+    }
+  }
+
+  if (loading || !profile) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-10 w-48" />
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48" />)}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -34,7 +57,7 @@ export function RewardsView({ user }: { user: CurrentUser }) {
           <Star className="size-5 fill-accent-foreground text-accent-foreground" />
           <div>
             <p className="text-xs text-muted-foreground">Tus puntos</p>
-            <p className="text-xl font-semibold leading-none">{user.points.toLocaleString()}</p>
+            <p className="text-xl font-semibold leading-none">{profile.points.toLocaleString()}</p>
           </div>
         </Card>
       </div>
@@ -42,10 +65,11 @@ export function RewardsView({ user }: { user: CurrentUser }) {
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {rewards.map((r) => {
           const Icon = catIcon[r.category]
-          const locked = roleRank[user.role] < roleRank[r.minRole]
-          const isRedeemed = redeemed.has(r.id)
-          const tooExpensive = user.points < r.cost
+          const locked = roleRank[profile.role] < roleRank[r.minRole]
+          const isRedeemed = redeemedIds.has(r.id)
+          const tooExpensive = profile.points < r.cost
           const disabled = locked || !r.available || isRedeemed || tooExpensive
+          const isBusy = redeemingId === r.id
 
           return (
             <Card key={r.id} className="flex flex-col gap-4 p-5">
@@ -74,11 +98,15 @@ export function RewardsView({ user }: { user: CurrentUser }) {
                 <span className="flex items-center gap-1 font-semibold text-accent-foreground">
                   <Gift className="size-4" /> {r.cost} pts
                 </span>
-                <Button size="sm" disabled={disabled} onClick={() => redeem(r.id, r.title, r.cost)}>
-                  {isRedeemed ? (
-                    <>
-                      <Check className="size-4" /> Canjeado
-                    </>
+                <Button
+                  size="sm"
+                  disabled={disabled || isBusy}
+                  onClick={() => handleRedeem(r.id, r.title, r.cost)}
+                >
+                  {isBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : isRedeemed ? (
+                    <><Check className="size-4" /> Canjeado</>
                   ) : locked ? (
                     "Bloqueado"
                   ) : tooExpensive ? (

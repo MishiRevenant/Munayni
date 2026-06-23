@@ -1,25 +1,15 @@
 "use client"
 
-import type React from "react"
 import { useState } from "react"
-import type { CurrentUser } from "@/lib/types"
-import { events as seedEvents, categoryLabels } from "@/lib/mock-data"
+import { useEvents } from "@/hooks/use-events"
+import type { EventCategory, Role } from "@/lib/types"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -27,51 +17,93 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, Users, CalendarDays, Settings2 } from "lucide-react"
+import { CalendarDays, Plus, Image as ImageIcon, CheckCircle2, Lock, Trash2, Loader2 } from "lucide-react"
 
-interface ManagedEvent {
-  id: string
-  title: string
-  category: string
-  date: string
-  enrolled: number
-  capacity: number
-  status: string
-}
+export function ManagementView() {
+  const { events, loading, create, remove } = useEvents()
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  
+  // Form state
+  const [title, setTitle] = useState("")
+  const [date, setDate] = useState("")
+  const [time, setTime] = useState("")
+  const [location, setLocation] = useState("")
+  const [category, setCategory] = useState<EventCategory>("limpieza")
+  const [points, setPoints] = useState("50")
+  const [capacity, setCapacity] = useState("30")
+  const [minRole, setMinRole] = useState<Role>("usuario")
+  const [description, setDescription] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-export function ManagementView({ user }: { user: CurrentUser }) {
-  const [list, setList] = useState<ManagedEvent[]>(
-    seedEvents.map((e) => ({
-      id: e.id,
-      title: e.title,
-      category: categoryLabels[e.category],
-      date: e.date,
-      enrolled: e.enrolled,
-      capacity: e.capacity,
-      status: e.status,
-    })),
-  )
-  const [open, setOpen] = useState(false)
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setIsSubmitting(true)
 
-  function createEvent(form: { title: string; category: string; date: string; capacity: string }) {
-    const newEvent: ManagedEvent = {
-      id: `ev-${Date.now()}`,
-      title: form.title || "Nuevo evento",
-      category: form.category || "Limpieza",
-      date: form.date || "Por definir",
-      enrolled: 0,
-      capacity: Number(form.capacity) || 30,
-      status: "abierto",
+    const newEvent = {
+      title, date, time, location, category, 
+      points: parseInt(points, 10), 
+      capacity: parseInt(capacity, 10), 
+      minRole, description,
     }
-    setList((prev) => [newEvent, ...prev])
-    setOpen(false)
-    toast.success("Evento creado", { description: newEvent.title })
+
+    try {
+      const res = await create(newEvent)
+      if (res.ok) {
+        toast.success("Evento creado exitosamente")
+        setSheetOpen(false)
+        resetForm()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error("Error al crear evento", { description: data.error })
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  function remove(id: string, title: string) {
-    setList((prev) => prev.filter((e) => e.id !== id))
-    toast("Evento eliminado", { description: title })
+  function resetForm() {
+    setTitle("")
+    setDate("")
+    setTime("")
+    setLocation("")
+    setCategory("limpieza")
+    setPoints("50")
+    setCapacity("30")
+    setMinRole("usuario")
+    setDescription("")
+  }
+
+  async function handleDelete(id: string, eventTitle: string) {
+    if (!confirm(`¿Eliminar evento "${eventTitle}"?`)) return
+    setBusyId(id)
+    try {
+      const res = await remove(id)
+      if (res.ok) {
+        toast("Evento eliminado")
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error("Error al eliminar", { description: data.error })
+      }
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-[500px] w-full" />
+      </div>
+    )
   }
 
   return (
@@ -80,168 +112,226 @@ export function ManagementView({ user }: { user: CurrentUser }) {
         <div>
           <h1 className="font-serif text-3xl font-semibold tracking-tight">Gestión de Eventos</h1>
           <p className="mt-1 text-muted-foreground">
-            {user.role === "admin"
-              ? "Como administrador puedes crear, editar y eliminar cualquier evento."
-              : "Como líder ambiental, organiza eventos junto a la administración."}
+            Crea, edita y supervisa las jornadas y talleres del colectivo.
           </p>
         </div>
-        <CreateEventDialog open={open} setOpen={setOpen} onCreate={createEvent} />
+        <Button onClick={() => setSheetOpen(true)} className="gap-2">
+          <Plus className="size-4" /> Nuevo evento
+        </Button>
       </div>
 
-      {/* Summary */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard icon={CalendarDays} label="Eventos activos" value={list.filter((e) => e.status !== "finalizado").length} />
-        <SummaryCard icon={Users} label="Inscripciones totales" value={list.reduce((a, e) => a + e.enrolled, 0)} />
-        <SummaryCard icon={Settings2} label="Cupos disponibles" value={list.reduce((a, e) => a + (e.capacity - e.enrolled), 0)} />
-      </div>
-
-      {/* Event table */}
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-muted/50 text-left text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Evento</th>
-                <th className="px-5 py-3 font-medium">Categoría</th>
                 <th className="px-5 py-3 font-medium">Fecha</th>
+                <th className="px-5 py-3 font-medium">Lugar</th>
                 <th className="px-5 py-3 font-medium">Inscritos</th>
                 <th className="px-5 py-3 font-medium">Estado</th>
                 <th className="px-5 py-3 text-right font-medium">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((e) => (
-                <tr key={e.id} className="border-b border-border last:border-0">
-                  <td className="px-5 py-3 font-medium">{e.title}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{e.category}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{e.date}</td>
-                  <td className="px-5 py-3 text-muted-foreground">
-                    {e.enrolled}/{e.capacity}
-                  </td>
-                  <td className="px-5 py-3">
-                    <Badge variant="secondary" className="capitalize">{e.status}</Badge>
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => toast("Editor abierto", { description: e.title })}
-                        aria-label="Editar"
+              {events.map((e) => {
+                const isBusy = busyId === e.id
+                return (
+                  <tr key={e.id} className="border-b border-border last:border-0">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        {e.minRole !== "usuario" && <Lock className="size-3 text-muted-foreground" />}
+                        <span className="font-medium">{e.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-muted-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <CalendarDays className="size-4" /> {e.date}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-muted-foreground">{e.location}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-16 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full bg-primary"
+                            style={{ width: `${(e.enrolled / e.capacity) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {e.enrolled}/{e.capacity}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge
+                        variant="outline"
+                        className={`border-0 ${
+                          e.status === "abierto"
+                            ? "bg-primary/10 text-primary"
+                            : e.status === "lleno"
+                              ? "bg-destructive/10 text-destructive"
+                              : "bg-muted text-muted-foreground"
+                        }`}
                       >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => remove(e.id, e.title)}
-                        aria-label="Eliminar"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {e.status}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        {isBusy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(e.id, e.title)}
+                          disabled={isBusy}
+                          aria-label="Eliminar evento"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </Card>
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Crear nuevo evento</SheetTitle>
+          </SheetHeader>
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Título del evento</Label>
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Ej. Reforestación Cerro Sur"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="date">Fecha</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="time">Hora</Label>
+                <Input
+                  id="time"
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="location">Ubicación</Label>
+              <Input
+                id="location"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Ej. Parque Central"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="category">Categoría</Label>
+                <Select value={category} onValueChange={(v) => setCategory(v as EventCategory)}>
+                  <SelectTrigger id="category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="limpieza">Limpieza</SelectItem>
+                    <SelectItem value="reforestacion">Reforestación</SelectItem>
+                    <SelectItem value="reciclaje">Reciclaje</SelectItem>
+                    <SelectItem value="taller">Taller</SelectItem>
+                    <SelectItem value="educacion">Educación</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="minRole">Rol mínimo</Label>
+                <Select value={minRole} onValueChange={(v) => setMinRole(v as Role)}>
+                  <SelectTrigger id="minRole">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="usuario">Miembro</SelectItem>
+                    <SelectItem value="lider">Líder Ambiental</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="capacity">Cupo máximo</Label>
+                <Input
+                  id="capacity"
+                  type="number"
+                  min="1"
+                  value={capacity}
+                  onChange={(e) => setCapacity(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="points">Puntos</Label>
+                <Input
+                  id="points"
+                  type="number"
+                  min="1"
+                  step="10"
+                  value={points}
+                  onChange={(e) => setPoints(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Descripción</Label>
+              <Textarea
+                id="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Detalles sobre el evento..."
+                className="resize-none"
+                rows={3}
+                required
+              />
+            </div>
+
+            <div className="pt-4">
+              <Button type="submit" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <><CheckCircle2 className="size-4 mr-2" /> Crear evento</>
+                )}
+              </Button>
+            </div>
+          </form>
+        </SheetContent>
+      </Sheet>
     </div>
-  )
-}
-
-function SummaryCard({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ElementType
-  label: string
-  value: number
-}) {
-  return (
-    <Card className="flex items-center gap-3 p-5">
-      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="size-5" />
-      </div>
-      <div>
-        <p className="text-2xl font-semibold leading-none">{value}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{label}</p>
-      </div>
-    </Card>
-  )
-}
-
-function CreateEventDialog({
-  open,
-  setOpen,
-  onCreate,
-}: {
-  open: boolean
-  setOpen: (v: boolean) => void
-  onCreate: (f: { title: string; category: string; date: string; capacity: string }) => void
-}) {
-  const [title, setTitle] = useState("")
-  const [category, setCategory] = useState("Limpieza")
-  const [date, setDate] = useState("")
-  const [capacity, setCapacity] = useState("30")
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="size-4" /> Crear evento
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Nuevo evento</DialogTitle>
-          <DialogDescription>Completa los datos para publicar un nuevo evento ambiental.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="ev-title">Título</Label>
-            <Input id="ev-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Limpieza de playa" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Categoría</Label>
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Limpieza">Limpieza</SelectItem>
-                  <SelectItem value="Reforestación">Reforestación</SelectItem>
-                  <SelectItem value="Reciclaje">Reciclaje</SelectItem>
-                  <SelectItem value="Taller">Taller</SelectItem>
-                  <SelectItem value="Educación">Educación</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ev-cap">Cupo</Label>
-              <Input id="ev-cap" type="number" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ev-date">Fecha</Label>
-            <Input id="ev-date" value={date} onChange={(e) => setDate(e.target.value)} placeholder="Sáb 28 Jun · 09:00" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="ev-desc">Descripción</Label>
-            <Textarea id="ev-desc" placeholder="Describe la actividad..." rows={3} />
-          </div>
-        </div>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Cancelar</Button>
-          </DialogClose>
-          <Button onClick={() => onCreate({ title, category, date, capacity })}>Publicar evento</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

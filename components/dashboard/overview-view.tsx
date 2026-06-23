@@ -1,34 +1,60 @@
 "use client"
 
 import type React from "react"
-import type { CurrentUser } from "@/lib/types"
 import type { ViewId } from "./sidebar"
-import { events, rewards } from "@/lib/mock-data"
+import { useProfile } from "@/hooks/use-profile"
+import { useEvents } from "@/hooks/use-events"
+import { useRewards } from "@/hooks/use-rewards"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Flame, TreePine, Recycle, CalendarCheck, ArrowRight, Coffee, Gift } from "lucide-react"
 
-const STREAK_GOAL = 4 // semanas para próximo nivel
+const STREAK_GOAL = 4
 
-export function OverviewView({ user, onNavigate }: { user: CurrentUser; onNavigate: (v: ViewId) => void }) {
+export function OverviewView({ onNavigate }: { onNavigate: (v: ViewId) => void }) {
+  const { profile, loading: profileLoading } = useProfile()
+  const { events, loading: eventsLoading } = useEvents()
+  const { rewards, loading: rewardsLoading } = useRewards()
+
+  if (profileLoading || !profile) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Skeleton className="h-48 lg:col-span-2" />
+          <Skeleton className="h-48" />
+        </div>
+      </div>
+    )
+  }
+
   const nextEvents = events.filter((e) => e.status !== "finalizado").slice(0, 3)
-  const pct = Math.min(100, (user.streak / STREAK_GOAL) * 100)
+  const pct = Math.min(100, (profile.streak / STREAK_GOAL) * 100)
+  const featuredRewards = rewards.filter((r) => r.available).slice(0, 3)
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-serif text-3xl font-semibold tracking-tight">Hola, {user.name.split(" ")[0]} 🌱</h1>
-        <p className="mt-1 text-muted-foreground">Este es el impacto que estás generando con el colectivo.</p>
+        <h1 className="font-serif text-3xl font-semibold tracking-tight">
+          Hola, {profile.name.split(" ")[0]} 🌱
+        </h1>
+        <p className="mt-1 text-muted-foreground">
+          Este es el impacto que estás generando con el colectivo.
+        </p>
       </div>
 
       {/* Stat grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Flame} label="Racha semanal" value={`${user.streak} sem`} tone="accent" />
-        <StatCard icon={CalendarCheck} label="Eventos asistidos" value={user.eventsAttended} />
-        <StatCard icon={TreePine} label="Árboles plantados" value={user.treesPlanted} />
-        <StatCard icon={Recycle} label="Kg reciclados" value={user.kgRecycled} />
+        <StatCard icon={Flame} label="Racha semanal" value={`${profile.streak} sem`} tone="accent" />
+        <StatCard icon={CalendarCheck} label="Eventos asistidos" value={profile.eventsAttended} />
+        <StatCard icon={TreePine} label="Árboles plantados" value={profile.treesPlanted} />
+        <StatCard icon={Recycle} label="Kg reciclados" value={profile.kgRecycled} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -42,24 +68,22 @@ export function OverviewView({ user, onNavigate }: { user: CurrentUser; onNaviga
               </p>
             </div>
             <Badge className="gap-1 bg-accent text-accent-foreground hover:bg-accent">
-              <Flame className="size-3.5" /> {user.streak} semanas
+              <Flame className="size-3.5" /> {profile.streak} semanas
             </Badge>
           </div>
 
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Hacia el siguiente nivel</span>
-              <span className="font-medium">
-                {user.streak}/{STREAK_GOAL} semanas
-              </span>
+              <span className="font-medium">{profile.streak}/{STREAK_GOAL} semanas</span>
             </div>
             <Progress value={pct} className="h-2.5" />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <LevelPill label="Beneficios cafetería" unlocked={user.streak >= 1} note="Racha ≥ 1 sem" />
-            <LevelPill label="Descuentos premium" unlocked={user.streak >= 4} note="Racha ≥ 4 sem" />
-            <LevelPill label="Líder ambiental" unlocked={user.role !== "usuario"} note="Racha ≥ 10 sem" />
+            <LevelPill label="Beneficios cafetería" unlocked={profile.streak >= 1} note="Racha ≥ 1 sem" />
+            <LevelPill label="Descuentos premium" unlocked={profile.streak >= 4} note="Racha ≥ 4 sem" />
+            <LevelPill label="Líder ambiental" unlocked={profile.role !== "usuario"} note="Racha ≥ 10 sem" />
           </div>
 
           <Button variant="outline" className="w-fit bg-transparent" onClick={() => onNavigate("streak")}>
@@ -84,61 +108,63 @@ export function OverviewView({ user, onNavigate }: { user: CurrentUser; onNaviga
             Ver todos <ArrowRight className="size-4" />
           </Button>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {nextEvents.map((e) => (
-            <Card key={e.id} className="overflow-hidden p-0">
-              <div className="aspect-[16/9] w-full overflow-hidden bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={e.image || "/placeholder.svg"} alt={e.title} className="size-full object-cover" />
-              </div>
-              <div className="space-y-1 p-4">
-                <p className="text-xs font-medium text-primary">{e.date} · {e.time}</p>
-                <p className="font-medium leading-snug">{e.title}</p>
-                <p className="text-xs text-muted-foreground">{e.location}</p>
-              </div>
-            </Card>
-          ))}
-        </div>
+        {eventsLoading ? (
+          <div className="grid gap-4 md:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48" />)}
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-3">
+            {nextEvents.map((e) => (
+              <Card key={e.id} className="overflow-hidden p-0">
+                <div className="aspect-[16/9] w-full overflow-hidden bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={e.image || "/placeholder.svg"} alt={e.title} className="size-full object-cover" />
+                </div>
+                <div className="space-y-1 p-4">
+                  <p className="text-xs font-medium text-primary">{e.date} · {e.time}</p>
+                  <p className="font-medium leading-snug">{e.title}</p>
+                  <p className="text-xs text-muted-foreground">{e.location}</p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Featured rewards */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Recompensas destacadas</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {rewards.filter((r) => r.available).slice(0, 3).map((r) => (
-            <Card key={r.id} className="flex items-center justify-between gap-3 p-4">
-              <div>
-                <p className="font-medium">{r.title}</p>
-                <p className="text-xs text-muted-foreground">{r.description}</p>
-              </div>
-              <Badge variant="secondary" className="shrink-0">{r.cost} pts</Badge>
-            </Card>
-          ))}
-        </div>
+        {rewardsLoading ? (
+          <div className="grid gap-4 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredRewards.map((r) => (
+              <Card key={r.id} className="flex items-center justify-between gap-3 p-4">
+                <div>
+                  <p className="font-medium">{r.title}</p>
+                  <p className="text-xs text-muted-foreground">{r.description}</p>
+                </div>
+                <Badge variant="secondary" className="shrink-0">{r.cost} pts</Badge>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: React.ElementType
-  label: string
-  value: React.ReactNode
-  tone?: "accent"
+function StatCard({ icon: Icon, label, value, tone }: {
+  icon: React.ElementType; label: string; value: React.ReactNode; tone?: "accent"
 }) {
   return (
     <Card className="p-5">
       <div className="flex items-center gap-3">
-        <div
-          className={`flex size-10 items-center justify-center rounded-lg ${
-            tone === "accent" ? "bg-accent/20 text-accent-foreground" : "bg-primary/10 text-primary"
-          }`}
-        >
+        <div className={`flex size-10 items-center justify-center rounded-lg ${
+          tone === "accent" ? "bg-accent/20 text-accent-foreground" : "bg-primary/10 text-primary"
+        }`}>
           <Icon className="size-5" />
         </div>
         <div>
@@ -152,11 +178,7 @@ function StatCard({
 
 function LevelPill({ label, unlocked, note }: { label: string; unlocked: boolean; note: string }) {
   return (
-    <div
-      className={`rounded-lg border p-3 ${
-        unlocked ? "border-primary/30 bg-primary/5" : "border-border bg-muted/40"
-      }`}
-    >
+    <div className={`rounded-lg border p-3 ${unlocked ? "border-primary/30 bg-primary/5" : "border-border bg-muted/40"}`}>
       <p className={`text-sm font-medium ${unlocked ? "text-foreground" : "text-muted-foreground"}`}>{label}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{unlocked ? "Desbloqueado" : note}</p>
     </div>

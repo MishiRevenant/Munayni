@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import type { Role } from "@/lib/types"
-import { users, roleLabels } from "@/lib/mock-data"
+import { useProfile } from "@/hooks/use-profile"
+import { useNotifications } from "@/hooks/use-notifications"
+import { roleLabels } from "@/lib/mock-data"
 import { Sidebar, type ViewId } from "./sidebar"
 import { OverviewView } from "./overview-view"
 import { EventsView } from "./events-view"
@@ -21,55 +22,58 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Menu, Flame, ChevronDown, Bell } from "lucide-react"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
-export function Dashboard({
-  role,
-  onRoleChange,
-  onLogout,
-}: {
-  role: Role
-  onRoleChange: (r: Role) => void
-  onLogout: () => void
-}) {
+export function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [view, setView] = useState<ViewId>("overview")
   const [menuOpen, setMenuOpen] = useState(false)
-  const user = users[role]
+  const [notifOpen, setNotifOpen] = useState(false)
+  const { profile, loading } = useProfile()
+  const { notifications, unreadCount, markAllRead } = useNotifications()
+
+  if (loading || !profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Cargando tu perfil...</p>
+        </div>
+      </div>
+    )
+  }
 
   function renderView() {
     switch (view) {
-      case "overview":
-        return <OverviewView user={user} onNavigate={setView} />
-      case "events":
-        return <EventsView user={user} />
-      case "streak":
-        return <StreakView user={user} />
-      case "rewards":
-        return <RewardsView user={user} />
-      case "cafeteria":
-        return <CafeteriaView user={user} />
-      case "opportunities":
-        return <OpportunitiesView />
-      case "management":
-        return <ManagementView user={user} />
-      case "members":
-        return <MembersView />
-      default:
-        return <OverviewView user={user} onNavigate={setView} />
+      case "overview":   return <OverviewView onNavigate={setView} />
+      case "events":     return <EventsView />
+      case "streak":     return <StreakView />
+      case "rewards":    return <RewardsView />
+      case "cafeteria":  return <CafeteriaView />
+      case "opportunities": return <OpportunitiesView />
+      case "management": return <ManagementView />
+      case "members":    return <MembersView />
+      default:           return <OverviewView onNavigate={setView} />
     }
   }
 
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar
-        role={role}
+        role={profile.role}
         active={view}
         onSelect={setView}
         onLogout={onLogout}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
-        userName={user.name}
+        userName={profile.name}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -86,39 +90,43 @@ export function Dashboard({
               <Menu className="size-5" />
             </Button>
             <Badge className="gap-1 border-0 bg-accent/20 text-accent-foreground hover:bg-accent/20">
-              <Flame className="size-3.5" /> {user.streak} sem
+              <Flame className="size-3.5" /> {profile.streak} sem
             </Badge>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" aria-label="Notificaciones" className="relative">
+            {/* Notificaciones */}
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Notificaciones"
+              className="relative"
+              onClick={() => { setNotifOpen(true); markAllRead() }}
+            >
               <Bell className="size-5" />
-              <span className="absolute right-2 top-2 size-2 rounded-full bg-accent" />
+              {unreadCount > 0 && (
+                <span className="absolute right-1.5 top-1.5 flex size-4 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-foreground">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
             </Button>
 
-            {/* Demo role switcher */}
+            {/* Rol del usuario */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
-                  <span className="hidden sm:inline">Ver como:</span>
-                  <span className="font-medium">{roleLabels[role]}</span>
+                  <span className="hidden sm:inline">Rol:</span>
+                  <span className="font-medium">{roleLabels[profile.role]}</span>
                   <ChevronDown className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Cambiar perfil (demo)</DropdownMenuLabel>
+                <DropdownMenuLabel>{profile.name}</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{profile.email}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {(["usuario", "lider", "admin"] as Role[]).map((r) => (
-                  <DropdownMenuItem
-                    key={r}
-                    onClick={() => {
-                      onRoleChange(r)
-                      setView("overview")
-                    }}
-                  >
-                    {roleLabels[r]}
-                  </DropdownMenuItem>
-                ))}
+                <DropdownMenuItem onClick={onLogout} className="text-destructive">
+                  Cerrar sesión
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -129,6 +137,37 @@ export function Dashboard({
           <div className="mx-auto max-w-6xl">{renderView()}</div>
         </main>
       </div>
+
+      {/* Panel de notificaciones */}
+      <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Notificaciones</SheetTitle>
+          </SheetHeader>
+          <ScrollArea className="mt-4 h-[calc(100vh-8rem)]">
+            <div className="space-y-3 pr-4">
+              {notifications.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Sin notificaciones</p>
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`rounded-lg border p-3 text-sm ${
+                      n.read ? "border-border bg-card" : "border-primary/30 bg-primary/5"
+                    }`}
+                  >
+                    <p className="font-medium">{n.title}</p>
+                    {n.body && <p className="mt-0.5 text-muted-foreground">{n.body}</p>}
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {new Date(n.created_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
